@@ -25,13 +25,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - Enhanced for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Global state for sessions (in-memory, for production use DB)
@@ -99,20 +106,40 @@ async def upload(files: List[UploadFile] = File(...)):
         Upload response with index ID and chunk count
     """
     try:
-        if not files:
-            raise HTTPException(status_code=400, detail="No files provided")
+        if not files or len(files) == 0:
+            raise HTTPException(status_code=400, detail="No files provided. Please select at least one file.")
+        
+        print(f"Starting upload for {len(files)} files")
+        
+        # Validate file types
+        supported_extensions = {'.pdf', '.txt', '.md', '.yaml', '.yml'}
+        for file in files:
+            if not any(file.filename.lower().endswith(ext) for ext in supported_extensions):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid file type: {file.filename}. Supported: PDF, TXT, MD"
+                )
         
         # Read file contents
         file_contents = []
         for file in files:
-            content = await file.read()
-            file_contents.append((content, file.filename))
+            try:
+                content = await file.read()
+                if len(content) == 0:
+                    raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
+                file_contents.append((content, file.filename))
+                print(f"Read {len(content)} bytes from {file.filename}")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Error reading file {file.filename}: {str(e)}")
         
         # Preprocess documents
+        print("Preprocessing documents...")
         chunks, sources = preprocess_documents(file_contents)
         
-        if not chunks:
-            raise HTTPException(status_code=400, detail="No text extracted from files")
+        if not chunks or len(chunks) == 0:
+            raise HTTPException(status_code=400, detail="No text content could be extracted from the uploaded files. Please check your documents.")
+        
+        print(f"Created {len(chunks)} chunks from documents")
         
         # Create session
         session_id = str(uuid.uuid4())
@@ -121,12 +148,15 @@ async def upload(files: List[UploadFile] = File(...)):
         session.sources = sources
         
         # Build retrieval index
+        print("Building embedding index...")
         session.retriever.build_index(chunks, sources)
         
         # Extract entities
+        print("Extracting entities...")
         session.entities, session.entity_chunk_map = get_entity_extractor().extract_from_chunks(chunks)
         
         # Build knowledge graph
+        print("Building knowledge graph...")
         session.graph_builder.build_graph(
             session.entities,
             session.entity_chunk_map,
@@ -135,16 +165,22 @@ async def upload(files: List[UploadFile] = File(...)):
         
         sessions[session_id] = session
         
+        print(f"Upload completed successfully. Session ID: {session_id}")
+        
         return UploadResponse(
             status="success",
-            message=f"Successfully processed {len(chunks)} chunks from {len(files)} files",
+            message=f"Successfully processed {len(chunks)} chunks from {len(files)} file(s)",
             index_id=session_id,
             chunks_count=len(chunks)
         )
         
+    except HTTPException as e:
+        print(f"Upload HTTP error: {e.detail}")
+        raise
     except Exception as e:
-        print(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"Upload error: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.post("/query", response_model=QueryResponse)
