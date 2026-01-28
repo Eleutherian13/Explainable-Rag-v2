@@ -23,6 +23,9 @@ from app.modules.citation import (
     extract_answer_entities, find_answer_citations, calculate_answer_confidence, extract_sentences
 )
 from app.modules.context_graph import ContextualGraphBuilder
+from app.modules.enhanced_answer_generator import EnhancedAnswerGenerator
+from app.modules.pdf_exporter import PDFExporter
+from app.modules.pipeline_tracker import PipelineTracker
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -54,6 +57,8 @@ sessions = {}
 embedding_model = None
 entity_extractor = None
 answer_generator = None
+enhanced_answer_generator = None
+pipeline_tracker = None
 
 def get_embedding_model():
     """Lazily initialize embedding model on first use."""
@@ -75,6 +80,21 @@ def get_answer_generator():
     global answer_generator
     if answer_generator is None:
         answer_generator = AnswerGenerator()
+    return answer_generator
+
+def get_enhanced_answer_generator():
+    """Lazily initialize enhanced answer generator."""
+    global enhanced_answer_generator
+    if enhanced_answer_generator is None:
+        enhanced_answer_generator = EnhancedAnswerGenerator()
+    return enhanced_answer_generator
+
+def get_pipeline_tracker():
+    """Get or initialize pipeline tracker."""
+    global pipeline_tracker
+    if pipeline_tracker is None:
+        pipeline_tracker = PipelineTracker()
+    return pipeline_tracker
     return answer_generator
 
 
@@ -471,6 +491,207 @@ async def clear_session(index_id: str):
         del sessions[index_id]
         return {"status": "success", "message": "Session cleared"}
     raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/query-enhanced")
+async def query_enhanced(request: QueryRequest):
+    """
+    Enhanced query endpoint with better answers, PDF export, and visualization.
+    """
+    try:
+        session_id = request.index_id
+        if not session_id or session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Index not found. Please upload documents first.")
+        
+        session = sessions[session_id]
+        
+        if session.is_processing:
+            raise HTTPException(status_code=503, detail=f"Session {session_id} is still processing.")
+        
+        if session.processing_error:
+            raise HTTPException(status_code=500, detail=f"Session error: {session.processing_error}")
+        
+        if not session.retriever.is_indexed():
+            raise HTTPException(status_code=400, detail="Index not properly initialized")
+        
+        print(f"[Enhanced Query] Processing: {request.query}")
+        
+        # Retrieve chunks
+        retrieved_chunk_indices, retrieval_scores = session.retriever.get_retrieved_indices(
+            request.query,
+            k=request.top_k
+        )
+        retrieved_chunks = [session.chunks[idx] for idx in retrieved_chunk_indices]
+        retrieved_sources = [session.sources[idx] for idx in retrieved_chunk_indices]
+        
+        if not retrieved_chunks:
+            raise HTTPException(status_code=404, detail="No relevant documents found")
+        
+        print(f"[Enhanced Query] Retrieved {len(retrieved_chunks)} chunks")
+        
+        # Generate enhanced answer
+        enhanced_gen = get_enhanced_answer_generator()
+        answer_data = enhanced_gen.generate_detailed(request.query, retrieved_chunks)
+        
+        print(f"[Enhanced Query] Answer generated")
+        
+        # Extract entities from retrieved context
+        retrieved_entities = []
+        entity_extractor_instance = get_entity_extractor()
+        for chunk_idx in retrieved_chunk_indices:
+            chunk = session.chunks[chunk_idx]
+            entities = entity_extractor_instance.extract_entities(chunk)
+            for ent in entities:
+                retrieved_entities.append({
+                    'name': ent['name'],
+                    'type': ent['type'],
+                    'source_chunk_id': chunk_idx,
+                    'retrieval_score': float(retrieval_scores[retrieved_chunk_indices.index(chunk_idx)])
+                })
+        
+        # Remove duplicates
+        seen = {}
+        unique_entities = []
+        for ent in retrieved_entities:
+            key = (ent['name'].lower(), ent['type'])
+            if key not in seen:
+                unique_entities.append(Entity(**ent))
+                seen[key] = ent
+        
+        print(f"[Enhanced Query] Extracted {len(unique_entities)} entities")
+        
+        # Build context graph
+        retrieved_chunk_indices_set = set(retrieved_chunk_indices)
+        context_graph_builder = ContextualGraphBuilder()
+        context_graph = context_graph_builder.build_context_graph(
+            retrieved_entities,
+            retrieved_chunk_indices_set,
+            session.chunks,
+            session.entity_chunk_map
+        )
+        
+        graph_data_dict = context_graph_builder.get_graph_data()
+        graph_nodes = [GraphNode(**node) for node in graph_data_dict['nodes']]
+        graph_edges = [GraphEdge(**edge) for edge in graph_data_dict['edges']]
+        graph_data = GraphData(nodes=graph_nodes, edges=graph_edges)
+        
+        # Create chunk references
+        chunk_references = [
+            ChunkReference(
+                index=idx,
+                filename=session.sources[idx],
+                relevance_score=float(retrieval_scores[retrieved_chunk_indices.index(idx)])
+            )
+            for idx in retrieved_chunk_indices
+        ]
+        
+        # Prepare PDF export data
+        pipeline_data = {
+            "files_uploaded": len(set(session.sources)),
+            "total_size": "N/A",
+            "chunks_count": len(session.chunks),
+            "avg_chunk_size": int(sum(len(c) for c in session.chunks) / len(session.chunks)) if session.chunks else 0,
+            "retrieved_chunks": len(retrieved_chunk_indices),
+            "mean_similarity": sum(retrieval_scores) / len(retrieval_scores) if retrieval_scores else 0,
+            "embedding_model": "all-MiniLM-L6-v2",
+            "llm_model": "gpt-4o-mini"
+        }
+        
+        pdf_html = PDFExporter.generate_pdf_content(
+            query=request.query,
+            answer=answer_data.get("main_answer", ""),
+            summary=answer_data.get("summary", ""),
+            key_points=answer_data.get("key_points", []),
+            entities=[{"name": e.name, "type": e.type} for e in unique_entities[:20]],
+            chunks=[{"text": c} for c in retrieved_chunks],
+            confidence=answer_data.get("confidence", 0.7),
+            pipeline_data=pipeline_data
+        )
+        
+        return {
+            "answer": answer_data.get("main_answer", ""),
+            "summary": answer_data.get("summary", ""),
+            "key_points": answer_data.get("key_points", []),
+            "entities": unique_entities,
+            "relationships": [
+                Relationship(
+                    from_entity=rel['from_entity'],
+                    to_entity=rel['to_entity'],
+                    relation=rel['relation']
+                )
+                for rel in context_graph_builder.get_relationships()
+            ],
+            "graph_data": graph_data,
+            "citations": [],
+            "confidence_score": answer_data.get("confidence", 0.7),
+            "unsupported_segments": [],
+            "retrieval_scores": retrieval_scores,
+            "chunk_references": chunk_references,
+            "snippets": retrieved_chunks,
+            "status": "success",
+            "pdf_html": pdf_html,
+            "pipeline_data": pipeline_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Enhanced Query] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/pipeline-info")
+async def get_pipeline_info():
+    """Get information about the data pipeline."""
+    return PipelineTracker.get_pipeline_info()
+
+
+@app.get("/pipeline-visualization/{session_id}")
+async def get_pipeline_visualization(session_id: str):
+    """Get pipeline visualization for a session."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[session_id]
+    tracker = get_pipeline_tracker()
+    
+    # Log session information
+    tracker.log_stage("upload", {
+        "files": len(set(session.sources)),
+        "chunks": len(session.chunks)
+    })
+    
+    return tracker.get_pipeline_visualization()
+
+
+@app.post("/entity-context/{session_id}")
+async def get_entity_context(session_id: str, entity_name: str):
+    """Get detailed context for an entity."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[session_id]
+    entity_name_lower = entity_name.lower()
+    
+    # Find chunks containing this entity
+    related_chunks = []
+    for idx, chunk in enumerate(session.chunks):
+        if entity_name_lower in chunk.lower():
+            related_chunks.append({
+                "index": idx,
+                "filename": session.sources[idx],
+                "snippet": chunk,
+                "highlight_text": entity_name
+            })
+    
+    return {
+        "entity": entity_name,
+        "related_chunks": related_chunks[:5],
+        "total_mentions": len(related_chunks),
+        "type": "UNKNOWN"
+    }
 
 
 if __name__ == "__main__":

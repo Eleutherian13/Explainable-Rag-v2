@@ -111,7 +111,7 @@ export const waitForUploadCompletion = async (sessionId, maxWaitMs = 300000, pol
 
 export const submitQuery = async (query, indexId) => {
   try {
-    const response = await api.post("/query", {
+    const response = await api.post("/query-enhanced", {
       query,
       index_id: indexId,
       top_k: 5,
