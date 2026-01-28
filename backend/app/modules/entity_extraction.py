@@ -54,8 +54,8 @@ class EntityExtractor:
         entities = []
         
         # Simple regex patterns for common entity types
-        # Capitalized phrases (potential ORG, PERSON, LOC)
-        capitalized_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
+        # Capitalized phrases (potential ORG, PERSON, LOC) including mixed-case like OpenAI and acronyms
+        capitalized_pattern = r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\b'
         
         matches = re.finditer(capitalized_pattern, text)
         for match in matches:
@@ -120,7 +120,7 @@ class EntityExtractor:
             List of noun phrases
         """
         # Simple fallback: extract capitalized phrases
-        capitalized_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
+        capitalized_pattern = r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\b'
         matches = re.finditer(capitalized_pattern, text)
         noun_phrases = [match.group(1) for match in matches]
         return list(set(noun_phrases))  # Remove duplicates

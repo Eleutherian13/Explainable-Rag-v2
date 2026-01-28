@@ -45,13 +45,43 @@ class GraphData(BaseModel):
     edges: List[GraphEdge]
 
 
+class Citation(BaseModel):
+    """Model for answer citations to source chunks."""
+    chunk_index: int
+    chunk_text: str
+    relevance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    matched_text: Optional[str] = None
+
+
+class AnswerEntity(BaseModel):
+    """Model for entities mentioned in the answer."""
+    name: str
+    type: str
+    source_chunk_id: Optional[int] = None
+    position_in_answer: int = -1
+    retrieval_score: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ChunkReference(BaseModel):
+    """Model for chunk-level source attribution."""
+    index: int
+    filename: str
+    relevance_score: float
+
+
 class QueryResponse(BaseModel):
     """Response model for query endpoint."""
     answer: str
     entities: List[Entity]
+    answer_entities: List[AnswerEntity] = Field(default_factory=list)
     relationships: List[Relationship]
     graph_data: GraphData
     snippets: List[str]
+    citations: List[Citation] = Field(default_factory=list)
+    confidence_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    unsupported_segments: List[str] = Field(default_factory=list)
+    retrieval_scores: List[float] = Field(default_factory=list)
+    chunk_references: List[ChunkReference] = Field(default_factory=list)
     status: str = "success"
 
 

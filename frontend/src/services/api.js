@@ -60,11 +60,53 @@ export const uploadDocuments = async (files) => {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      timeout: 30000, // 30 second timeout for upload response
     });
     return response.data;
   } catch (error) {
     throw error;
   }
+};
+
+export const checkUploadStatus = async (sessionId) => {
+  try {
+    const response = await api.get(`/upload-status/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const waitForUploadCompletion = async (sessionId, maxWaitMs = 300000, pollIntervalMs = 1000) => {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const status = await checkUploadStatus(sessionId);
+      console.log(`[POLL] Upload status: processing=${status.is_processing}, ready=${status.is_ready}, error=${status.error}`);
+      
+      if (status.is_ready) {
+        console.log(`[POLL] Upload completed successfully`);
+        return status;
+      }
+      
+      if (status.error) {
+        throw new Error(`Upload error: ${status.error}`);
+      }
+      
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    } catch (error) {
+      // If session not found yet, try again
+      if (error.response?.status === 404) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  
+  throw new Error(`Upload did not complete within ${maxWaitMs}ms`);
 };
 
 export const submitQuery = async (query, indexId) => {

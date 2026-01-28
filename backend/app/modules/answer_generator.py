@@ -1,8 +1,9 @@
 """
 Answer generation module with LLM integration.
 """
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict
 import os
+import re
 from openai import OpenAI, APIError
 
 
@@ -39,21 +40,26 @@ class AnswerGenerator:
         if not self.client:
             return self._generate_fallback(query, context_chunks)
         
-        # Prepare context
-        context = "\n\n".join(context_chunks)
-        context = context[:4000]  # Limit context size
+        # Prepare context with chunk markers for citation
+        context_lines = []
+        for idx, chunk in enumerate(context_chunks):
+            context_lines.append(f"[Chunk {idx}] {chunk}")
+        context = "\n\n".join(context_lines)
+        context = context[:5000]  # Limit context size
         
-        # Create prompt
-        system_prompt = """You are a helpful assistant that answers questions using only the provided context. 
-        Do not use external knowledge. If the answer is not in the context, say "I cannot find this information in the provided documents."
-        Be concise and accurate."""
+        # Create prompt with citation instructions
+        system_prompt = """You are a helpful assistant that answers questions using ONLY the provided context. 
+Do not use external knowledge. If the answer is not in the context, say "I cannot find this information in the provided documents."
+Be concise and accurate.
+
+When answering, reference the chunk numbers that support your answer using [Chunk N] notation."""
         
         user_prompt = f"""Context:
 {context}
 
 Question: {query}
 
-Answer:"""
+Answer (cite chunks used): """
         
         try:
             response = self.client.chat.completions.create(
@@ -76,6 +82,27 @@ Answer:"""
             print(f"OpenAI API error: {e}")
             return self._generate_fallback(query, context_chunks)
     
+    def extract_cited_chunks(self, answer: str) -> List[int]:
+        """
+        Extract chunk indices from answer text.
+        Looks for [Chunk N] references in the answer.
+        
+        Args:
+            answer: Generated answer text that may contain chunk references
+            
+        Returns:
+            List of chunk indices mentioned in answer
+        """
+        # Find all [Chunk N] references
+        chunk_pattern = r'\[Chunk\s+(\d+)\]'
+        matches = re.findall(chunk_pattern, answer)
+        
+        # Convert to integers and remove duplicates
+        cited_chunks = list(set(int(m) for m in matches))
+        cited_chunks.sort()
+        
+        return cited_chunks
+    
     def _generate_fallback(self, query: str, context_chunks: List[str]) -> str:
         """
         Fallback answer generation without LLM.
@@ -97,28 +124,31 @@ Answer:"""
         # Score each chunk based on keyword overlap
         best_chunk = None
         best_score = -1
+        best_chunk_idx = 0
         
-        for chunk in context_chunks:
+        for idx, chunk in enumerate(context_chunks):
             chunk_words = set(w.lower() for w in chunk.split() if len(w) > 2)
             overlap = len(query_words & chunk_words)
             if overlap > best_score:
                 best_score = overlap
                 best_chunk = chunk
+                best_chunk_idx = idx
         
         # If no overlap found, use the most relevant chunk (first retrieved)
         if best_chunk is None:
             best_chunk = context_chunks[0]
+            best_chunk_idx = 0
         
-        # Return FULL content, find good break point at sentence
+        # Add citation reference to answer
         if len(best_chunk) <= 1000:
-            return best_chunk.strip()
+            return f"{best_chunk.strip()} [Chunk {best_chunk_idx}]"
         
         # For longer chunks, find last complete sentence
         truncated = best_chunk[:1200]
         for end_marker in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
             last_idx = truncated.rfind(end_marker)
             if last_idx > 500:  # At least 500 chars
-                return best_chunk[:last_idx + 1].strip()
+                return f"{best_chunk[:last_idx + 1].strip()} [Chunk {best_chunk_idx}]"
         
-        # Fallback: return up to 1000 chars
-        return best_chunk[:1000].strip()
+        # Fallback: return up to 1000 chars with citation
+        return f"{best_chunk[:1000].strip()} [Chunk {best_chunk_idx}]"

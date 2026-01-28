@@ -3,20 +3,26 @@ Main FastAPI application.
 """
 import os
 import uuid
-from typing import List
+import asyncio
+from typing import List, Set
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.models.schemas import (
     QueryRequest, QueryResponse, UploadResponse, StatusResponse,
-    Entity, Relationship, GraphNode, GraphEdge, GraphData
+    Entity, Relationship, GraphNode, GraphEdge, GraphData,
+    Citation, AnswerEntity, ChunkReference
 )
 from app.modules.preprocessing import preprocess_documents
 from app.modules.retrieval import EmbeddingModel, FAISSRetriever
 from app.modules.entity_extraction import EntityExtractor
 from app.modules.graph_builder import KnowledgeGraphBuilder
 from app.modules.answer_generator import AnswerGenerator
+from app.modules.citation import (
+    extract_answer_entities, find_answer_citations, calculate_answer_confidence, extract_sentences
+)
+from app.modules.context_graph import ContextualGraphBuilder
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -83,6 +89,52 @@ class RAGSession:
         self.entities = []
         self.entity_chunk_map = {}
         self.graph_builder = KnowledgeGraphBuilder()
+        self.is_processing = False
+        self.processing_error = None
+
+
+def process_session_sync(session_id: str, chunks: List, sources: List, session: RAGSession):
+    """Process session synchronously (blocking, for thread pool execution)."""
+    try:
+        print(f"[ASYNC] Starting processing for session {session_id}")
+        
+        # Build retrieval index
+        print(f"[ASYNC] Building embedding index for session {session_id}...")
+        session.retriever.build_index(chunks, sources)
+        print(f"[ASYNC] Embedding index built successfully for {session_id}")
+        
+        # Extract entities
+        print(f"[ASYNC] Extracting entities for session {session_id}...")
+        session.entities, session.entity_chunk_map = get_entity_extractor().extract_from_chunks(chunks)
+        print(f"[ASYNC] Extracted {len(session.entities)} entities for {session_id}")
+        
+        # Build knowledge graph
+        print(f"[ASYNC] Building knowledge graph for session {session_id}...")
+        session.graph_builder.build_graph(
+            session.entities,
+            session.entity_chunk_map,
+            chunks
+        )
+        print(f"[ASYNC] Knowledge graph built successfully for {session_id}")
+        
+        session.is_processing = False
+        print(f"[ASYNC] Session {session_id} processing completed successfully")
+        
+    except Exception as e:
+        print(f"[ASYNC] Error processing session {session_id}: {str(e)}")
+        session.is_processing = False
+        session.processing_error = str(e)
+
+
+async def process_session_async(session_id: str, chunks: List, sources: List, session: RAGSession):
+    """Process session asynchronously (non-blocking)."""
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, process_session_sync, session_id, chunks, sources, session)
+    except Exception as e:
+        print(f"[ASYNC] Error in async processing for {session_id}: {str(e)}")
+        session.processing_error = str(e)
+        session.is_processing = False
 
 
 @app.get("/status", response_model=StatusResponse)
@@ -95,12 +147,13 @@ async def status():
 
 
 @app.post("/upload", response_model=UploadResponse)
-async def upload(files: List[UploadFile] = File(...)):
+async def upload(files: List[UploadFile] = File(...), background_tasks: BackgroundTasks = None):
     """
     Upload and process documents.
     
     Args:
         files: List of PDF or text files
+        background_tasks: Background task queue
         
     Returns:
         Upload response with index ID and chunk count
@@ -109,7 +162,7 @@ async def upload(files: List[UploadFile] = File(...)):
         if not files or len(files) == 0:
             raise HTTPException(status_code=400, detail="No files provided. Please select at least one file.")
         
-        print(f"Starting upload for {len(files)} files")
+        print(f"\n[UPLOAD] Starting upload for {len(files)} files")
         
         # Validate file types
         supported_extensions = {'.pdf', '.txt', '.md', '.yaml', '.yml'}
@@ -122,24 +175,33 @@ async def upload(files: List[UploadFile] = File(...)):
         
         # Read file contents
         file_contents = []
+        total_size = 0
         for file in files:
             try:
                 content = await file.read()
                 if len(content) == 0:
                     raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
                 file_contents.append((content, file.filename))
-                print(f"Read {len(content)} bytes from {file.filename}")
+                total_size += len(content)
+                print(f"[UPLOAD] Read {len(content)} bytes from {file.filename}")
             except Exception as e:
+                print(f"[UPLOAD] Error reading {file.filename}: {str(e)}")
                 raise HTTPException(status_code=400, detail=f"Error reading file {file.filename}: {str(e)}")
         
+        print(f"[UPLOAD] Total file size: {total_size / 1024 / 1024:.2f} MB")
+        
         # Preprocess documents
-        print("Preprocessing documents...")
-        chunks, sources = preprocess_documents(file_contents)
+        print("[UPLOAD] Preprocessing documents...")
+        try:
+            chunks, sources = preprocess_documents(file_contents)
+        except Exception as e:
+            print(f"[UPLOAD] Preprocessing error: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Error preprocessing documents: {str(e)}")
         
         if not chunks or len(chunks) == 0:
             raise HTTPException(status_code=400, detail="No text content could be extracted from the uploaded files. Please check your documents.")
         
-        print(f"Created {len(chunks)} chunks from documents")
+        print(f"[UPLOAD] Created {len(chunks)} chunks from documents")
         
         # Create session
         session_id = str(uuid.uuid4())
@@ -147,31 +209,32 @@ async def upload(files: List[UploadFile] = File(...)):
         session.chunks = chunks
         session.sources = sources
         
-        # Build retrieval index
-        print("Building embedding index...")
-        session.retriever.build_index(chunks, sources)
-        
-        # Extract entities
-        print("Extracting entities...")
-        session.entities, session.entity_chunk_map = get_entity_extractor().extract_from_chunks(chunks)
-        
-        # Build knowledge graph
-        print("Building knowledge graph...")
-        session.graph_builder.build_graph(
-            session.entities,
-            session.entity_chunk_map,
-            chunks
-        )
-        
+        # Mark session as processing in background
+        session.is_processing = True
         sessions[session_id] = session
         
-        print(f"Upload completed successfully. Session ID: {session_id}")
+        # Queue heavy processing as background task to avoid timeout
+        if background_tasks:
+            background_tasks.add_task(
+                process_session_async,
+                session_id,
+                chunks,
+                sources,
+                session
+            )
+            print(f"[UPLOAD] Session {session_id} queued for background processing")
+        else:
+            # Fallback: Process synchronously in thread pool
+            print("[UPLOAD] Processing in thread pool...")
+            await asyncio.get_event_loop().run_in_executor(None, process_session_sync, session_id, chunks, sources, session)
+            print(f"[UPLOAD] Session {session_id} processing complete")
         
+        # Return immediately with session ID (processing continues in background)
         return UploadResponse(
             status="success",
-            message=f"Successfully processed {len(chunks)} chunks from {len(files)} file(s)",
             index_id=session_id,
-            chunks_count=len(chunks)
+            chunks_count=len(chunks),
+            message=f"Upload started. Session {session_id} is processing in background."
         )
         
     except HTTPException as e:
@@ -183,16 +246,40 @@ async def upload(files: List[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail=error_msg)
 
 
+@app.get("/upload-status/{session_id}")
+async def upload_status(session_id: str):
+    """Check if a session has finished processing."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[session_id]
+    return {
+        "session_id": session_id,
+        "is_processing": session.is_processing,
+        "error": session.processing_error,
+        "chunk_count": len(session.chunks),
+        "entity_count": len(session.entities),
+        "is_ready": not session.is_processing and session.processing_error is None
+    }
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest):
     """
-    Process query and return answer with explanations.
+    Process query and return answer with traceability and explanations.
+    
+    Implements:
+    - Answer citations to source chunks
+    - Entity extraction from retrieved context only
+    - Query-focused knowledge graph
+    - Confidence scoring
+    - Entity-answer linking
     
     Args:
         request: Query request with query text and session ID
         
     Returns:
-        Query response with answer, entities, relationships, and graph
+        Query response with answer, entities, relationships, graph, and traceability
     """
     try:
         # Get session
@@ -202,71 +289,146 @@ async def query(request: QueryRequest):
         
         session = sessions[session_id]
         
+        # Check if session is still processing
+        if session.is_processing:
+            raise HTTPException(status_code=503, detail=f"Session {session_id} is still processing. Please wait a moment and try again.")
+        
+        if session.processing_error:
+            raise HTTPException(status_code=500, detail=f"Session {session_id} encountered an error during processing: {session.processing_error}")
+        
         if not session.retriever.is_indexed():
             raise HTTPException(status_code=400, detail="Index not properly initialized")
         
-        # Retrieve relevant chunks
-        retrieved_chunks, retrieved_sources, similarities = session.retriever.retrieve(
+        # PHASE 3: Retrieve with chunk indices for filtering
+        print(f"[Query] Processing: {request.query}")
+        retrieved_chunk_indices, retrieval_scores = session.retriever.get_retrieved_indices(
             request.query,
             k=request.top_k
         )
+        retrieved_chunk_indices_set = set(retrieved_chunk_indices)
+        
+        # Get actual chunks for answer generation
+        retrieved_chunks = [session.chunks[idx] for idx in retrieved_chunk_indices]
+        retrieved_sources = [session.sources[idx] for idx in retrieved_chunk_indices]
         
         if not retrieved_chunks:
             raise HTTPException(status_code=404, detail="No relevant documents found")
         
-        # Generate answer
-        answer = get_answer_generator().generate(request.query, retrieved_chunks)
+        print(f"[Query] Retrieved {len(retrieved_chunks)} chunks with mean similarity {sum(retrieval_scores)/len(retrieval_scores):.3f}")
         
-        # Extract entities from retrieved chunks
+        # PHASE 2: Generate answer with citation instructions
+        answer_generator = get_answer_generator()
+        answer = answer_generator.generate(request.query, retrieved_chunks)
+        print(f"[Query] Generated answer ({len(answer)} chars)")
+        
+        # PHASE 2: Extract citations from answer
+        citations_list, unsupported_segments = find_answer_citations(answer, retrieved_chunks, retrieval_scores)
+        print(f"[Query] Found {len(citations_list)} citations, {len(unsupported_segments)} unsupported segments")
+        
+        # Convert to Citation objects
+        citations = [Citation(**c) for c in citations_list]
+        
+        # PHASE 3: Extract entities ONLY from retrieved context
         retrieved_entities = []
         entity_extractor_instance = get_entity_extractor()
-        for chunk_idx, chunk in enumerate(retrieved_chunks):
+        for chunk_idx in retrieved_chunk_indices:
+            chunk = session.chunks[chunk_idx]
             entities = entity_extractor_instance.extract_entities(chunk)
             for ent in entities:
                 retrieved_entities.append({
                     'name': ent['name'],
                     'type': ent['type'],
-                    'source_chunk_id': chunk_idx
+                    'source_chunk_id': chunk_idx,
+                    'retrieval_score': float(retrieval_scores[retrieved_chunk_indices.index(chunk_idx)])
                 })
         
-        # Remove duplicates
-        seen = set()
+        # Remove duplicates while preserving retrieval scores
+        seen = {}
         unique_entities = []
         for ent in retrieved_entities:
             key = (ent['name'].lower(), ent['type'])
             if key not in seen:
                 unique_entities.append(Entity(**ent))
-                seen.add(key)
+                seen[key] = ent
         
-        # Get relationships from graph
+        print(f"[Query] Extracted {len(unique_entities)} unique entities from context")
+        
+        # PHASE 4: Extract entities mentioned in answer
+        answer_entities_list = extract_answer_entities(answer, retrieved_entities)
+        answer_entities = [AnswerEntity(**e) for e in answer_entities_list]
+        print(f"[Query] Found {len(answer_entities)} entities mentioned in answer")
+        
+        # PHASE 3: Build context-focused knowledge graph
+        context_graph_builder = ContextualGraphBuilder()
+        context_graph = context_graph_builder.build_context_graph(
+            retrieved_entities,
+            retrieved_chunk_indices_set,
+            session.chunks,
+            session.entity_chunk_map
+        )
+        
+        # Get relationships from context graph
         relationships = [
             Relationship(
                 from_entity=rel['from_entity'],
                 to_entity=rel['to_entity'],
                 relation=rel['relation']
             )
-            for rel in session.graph_builder.get_relationships()
+            for rel in context_graph_builder.get_relationships()
         ]
         
-        # Get graph data
-        graph_data_dict = session.graph_builder.get_graph_data()
+        print(f"[Query] Built context graph with {len(context_graph.nodes())} entities, {len(relationships)} relationships")
+        
+        # Get graph data for visualization
+        graph_data_dict = context_graph_builder.get_graph_data()
         graph_nodes = [GraphNode(**node) for node in graph_data_dict['nodes']]
         graph_edges = [GraphEdge(**edge) for edge in graph_data_dict['edges']]
         graph_data = GraphData(nodes=graph_nodes, edges=graph_edges)
         
-        return QueryResponse(
+        # PHASE 6: Calculate confidence score
+        answer_sentence_count = len(extract_sentences(answer))
+        confidence_score = calculate_answer_confidence(
+            citations_list,
+            retrieval_scores,
+            answer_sentence_count
+        )
+        print(f"[Query] Confidence score: {confidence_score:.3f}")
+        
+        # Create chunk references for attribution
+        chunk_references = [
+            ChunkReference(
+                index=idx,
+                filename=session.sources[idx],
+                relevance_score=float(retrieval_scores[retrieved_chunk_indices.index(idx)])
+            )
+            for idx in retrieved_chunk_indices
+        ]
+        
+        # Build and return comprehensive response
+        response = QueryResponse(
             answer=answer,
             entities=unique_entities,
+            answer_entities=answer_entities,
             relationships=relationships,
             graph_data=graph_data,
+            citations=citations,
+            confidence_score=confidence_score,
+            unsupported_segments=unsupported_segments,
+            retrieval_scores=retrieval_scores,
+            chunk_references=chunk_references,
             snippets=retrieved_chunks,
             status="success"
         )
         
+        print(f"[Query] Response complete - {len(answer)} char answer, {len(citations)} citations, confidence {confidence_score:.2%}")
+        return response
+        
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Query error: {e}")
+        print(f"[Query] Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

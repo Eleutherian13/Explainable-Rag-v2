@@ -76,7 +76,7 @@ class FAISSRetriever:
             k: Number of results
             
         Returns:
-            Tuple of (chunks, sources, distances)
+            Tuple of (chunks, sources, similarities)
         """
         if self.index is None:
             return [], [], []
@@ -96,6 +96,33 @@ class FAISSRetriever:
         similarities = [1.0 / (1.0 + d) for d in retrieved_distances]
         
         return retrieved_chunks, retrieved_sources, similarities
+    
+    def get_retrieved_indices(self, query: str, k: int = 5) -> Tuple[List[int], List[float]]:
+        """
+        Get indices of top-k retrieved chunks and their similarities.
+        
+        Args:
+            query: Query string
+            k: Number of results
+            
+        Returns:
+            Tuple of (chunk_indices, similarities)
+        """
+        if self.index is None:
+            return [], []
+        
+        # Encode query
+        query_embedding = self.embedding_model.encode([query])
+        
+        # Search
+        distances, indices = self.index.search(query_embedding, min(k, len(self.chunks)))
+        
+        # Convert distances to similarities
+        retrieved_indices = indices[0].tolist()
+        retrieved_distances = distances[0].tolist()
+        similarities = [1.0 / (1.0 + d) for d in retrieved_distances]
+        
+        return retrieved_indices, similarities
     
     def is_indexed(self) -> bool:
         """Check if index is built."""
