@@ -9,7 +9,7 @@ import { BarChart3 } from "lucide-react";
 export default function Dashboard() {
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState("upload");
-  
+
   const indexId = useAppStore((state) => state.indexId);
   const results = useAppStore((state) => state.results);
 
@@ -121,8 +121,13 @@ export default function Dashboard() {
                     {results.entities && results.entities.length > 0 ? (
                       <div className="space-y-2">
                         {results.entities.map((entity, idx) => (
-                          <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded">
-                            <span className="font-medium text-gray-900">{entity.name}</span>
+                          <div
+                            key={idx}
+                            className="flex items-center gap-3 p-3 bg-gray-50 rounded"
+                          >
+                            <span className="font-medium text-gray-900">
+                              {entity.name}
+                            </span>
                             <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
                               {entity.type}
                             </span>
@@ -140,8 +145,13 @@ export default function Dashboard() {
                     {results.snippets && results.snippets.length > 0 ? (
                       <div className="space-y-3">
                         {results.snippets.map((snippet, idx) => (
-                          <div key={idx} className="p-4 bg-gray-50 rounded border border-gray-200">
-                            <p className="text-sm text-gray-600 font-semibold mb-2">Snippet {idx + 1}</p>
+                          <div
+                            key={idx}
+                            className="p-4 bg-gray-50 rounded border border-gray-200"
+                          >
+                            <p className="text-sm text-gray-600 font-semibold mb-2">
+                              Snippet {idx + 1}
+                            </p>
                             <p className="text-gray-700 text-sm">{snippet}</p>
                           </div>
                         ))}
@@ -157,7 +167,9 @@ export default function Dashboard() {
 
           {!showResults && (
             <div className="bg-white rounded-lg shadow p-12 text-center">
-              <p className="text-gray-500 text-lg">Upload documents and ask a question to see results</p>
+              <p className="text-gray-500 text-lg">
+                Upload documents and ask a question to see results
+              </p>
             </div>
           )}
         </div>

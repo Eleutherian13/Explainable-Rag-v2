@@ -4,6 +4,7 @@ Enhanced answer generation with better quality and formatting.
 from typing import List, Optional, Dict
 import os
 from openai import OpenAI, APIError
+from app.modules.llm_config import resolve_llm_config
 
 
 class EnhancedAnswerGenerator:
@@ -11,12 +12,16 @@ class EnhancedAnswerGenerator:
     
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
         """Initialize enhanced answer generator."""
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-        self.model = model
+        config = resolve_llm_config(default_model=model)
+        self.api_key = api_key or config.api_key
+        self.model = config.model
         self.client = None
         
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            if config.base_url:
+                self.client = OpenAI(api_key=self.api_key, base_url=config.base_url)
+            else:
+                self.client = OpenAI(api_key=self.api_key)
     
     def generate_detailed(self, query: str, context_chunks: List[str]) -> Dict:
         """
@@ -44,13 +49,15 @@ class EnhancedAnswerGenerator:
 
 IMPORTANT GUIDELINES:
 1. Provide a THOROUGH explanation (500-1000 words minimum when possible)
-2. Organize your answer with clear structure and paragraphs
+2. Organize your answer with clear structure, headings, and short paragraphs
 3. Include specific examples from the context
 4. Use [Chunk N] notation to cite sources (e.g., "According to [Chunk 2], ...")
 5. Create a "Key Points" section with 3-5 bullet points
 6. If information spans multiple chunks, mention all relevant sources
 7. If the answer requires multiple aspects, organize them clearly
 8. NEVER say "based on the provided context" - just provide the information naturally
+9. If the context looks like a resume or profile, format it as a clean resume summary with sections (Contact, Objective, Skills, Projects, Education)
+10. Fix spacing issues or concatenated words in your response
 
 Format your response as JSON with this structure:
 {

@@ -4,7 +4,6 @@ import DocumentUpload from "./DocumentUpload";
 import QueryForm from "./QueryForm";
 import GraphVisualization from "./GraphVisualization";
 import ErrorAlert from "./ErrorAlert";
-import PipelineVisualization from "./PipelineVisualization";
 import { BarChart3 } from "lucide-react";
 
 export default function Dashboard() {
@@ -12,6 +11,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("answer");
 
   const results = useAppStore((state) => state.results);
+  const error = useAppStore((state) => state.error);
 
   useEffect(() => {
     console.log("Results updated:", results);
@@ -54,11 +54,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Pipeline Visualization */}
-        <div className="mb-8">
-          <PipelineVisualization />
-        </div>
-
         {/* Results Section */}
         {showResults && results ? (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -86,7 +81,7 @@ export default function Dashboard() {
               {activeTab === "answer" && (
                 <div>
                   <h3 className="text-lg font-bold mb-4">Answer</h3>
-                  <div className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words text-base max-w-4xl">
+                  <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
                     {results.answer || "No answer available"}
                   </div>
                 </div>

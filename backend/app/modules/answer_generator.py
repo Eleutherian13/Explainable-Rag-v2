@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple, Dict
 import os
 import re
 from openai import OpenAI, APIError
+from app.modules.llm_config import resolve_llm_config
 
 
 class AnswerGenerator:
@@ -18,12 +19,16 @@ class AnswerGenerator:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             model: Model name to use
         """
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-        self.model = model
+        config = resolve_llm_config(default_model=model)
+        self.api_key = api_key or config.api_key
+        self.model = config.model
         self.client = None
         
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            if config.base_url:
+                self.client = OpenAI(api_key=self.api_key, base_url=config.base_url)
+            else:
+                self.client = OpenAI(api_key=self.api_key)
     
     def generate(self, query: str, context_chunks: List[str], max_tokens: int = 500) -> str:
         """
@@ -48,11 +53,14 @@ class AnswerGenerator:
         context = context[:5000]  # Limit context size
         
         # Create prompt with citation instructions
-        system_prompt = """You are a helpful assistant that answers questions using ONLY the provided context. 
-Do not use external knowledge. If the answer is not in the context, say "I cannot find this information in the provided documents."
-Be concise and accurate.
+        system_prompt = """You are a helpful assistant that answers questions using ONLY the provided context.
+    Do not use external knowledge. If the answer is not in the context, say "I cannot find this information in the provided documents."
 
-When answering, reference the chunk numbers that support your answer using [Chunk N] notation."""
+    Write a clear, readable answer with short paragraphs or bullet points where appropriate.
+    If the context looks like a resume or profile, format sections with headings and bullet points.
+    Fix spacing issues or concatenated words in your response.
+
+    When answering, reference the chunk numbers that support your answer using [Chunk N] notation."""
         
         user_prompt = f"""Context:
 {context}
@@ -139,16 +147,13 @@ Answer (cite chunks used): """
             best_chunk = context_chunks[0]
             best_chunk_idx = 0
         
-        # Add citation reference to answer
-        if len(best_chunk) <= 1000:
-            return f"{best_chunk.strip()} [Chunk {best_chunk_idx}]"
-        
-        # For longer chunks, find last complete sentence
-        truncated = best_chunk[:1200]
-        for end_marker in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
-            last_idx = truncated.rfind(end_marker)
-            if last_idx > 500:  # At least 500 chars
-                return f"{best_chunk[:last_idx + 1].strip()} [Chunk {best_chunk_idx}]"
-        
-        # Fallback: return up to 1000 chars with citation
-        return f"{best_chunk[:1000].strip()} [Chunk {best_chunk_idx}]"
+        # Build a concise, readable fallback using top chunks
+        top_chunks = context_chunks[:3]
+        lines = ["Relevant information found:"]
+        for idx, chunk in enumerate(top_chunks):
+            snippet = chunk.strip()
+            if len(snippet) > 400:
+                snippet = snippet[:400].rsplit(' ', 1)[0] + "..."
+            lines.append(f"- {snippet} [Chunk {idx}]")
+
+        return "\n".join(lines)

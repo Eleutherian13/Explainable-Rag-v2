@@ -11,7 +11,7 @@ export default function Dashboard() {
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState("upload");
   const [debugInfo, setDebugInfo] = useState("Loading...");
-  
+
   const indexId = useAppStore((state) => state.indexId);
   const results = useAppStore((state) => state.results);
   const error = useAppStore((state) => state.error);
@@ -19,8 +19,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     // Debug info
-    setDebugInfo(`IndexId: ${indexId || "None"}, Results: ${results ? "Yes" : "No"}, Error: ${error || "None"}`);
-    
+    setDebugInfo(
+      `IndexId: ${indexId || "None"}, Results: ${results ? "Yes" : "No"}, Error: ${error || "None"}`,
+    );
+
     if (results) {
       setShowResults(true);
       setActiveTab("graph");
@@ -114,15 +116,22 @@ export default function Dashboard() {
                 )}
                 {activeTab === "answer" && (
                   <div className="prose max-w-none">
-                    <p className="text-gray-700 whitespace-pre-wrap">{results.answer}</p>
+                    <p className="text-gray-700 whitespace-pre-wrap">
+                      {results.answer}
+                    </p>
                   </div>
                 )}
                 {activeTab === "entities" && (
                   <div className="space-y-2">
                     {results.entities && results.entities.length > 0 ? (
                       results.entities.map((entity, idx) => (
-                        <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
-                          <span className="text-sm font-medium text-gray-900">{entity.name}</span>
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 p-2 bg-gray-50 rounded"
+                        >
+                          <span className="text-sm font-medium text-gray-900">
+                            {entity.name}
+                          </span>
                           <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
                             {entity.type}
                           </span>
@@ -137,7 +146,10 @@ export default function Dashboard() {
                   <div className="space-y-3">
                     {results.snippets && results.snippets.length > 0 ? (
                       results.snippets.map((snippet, idx) => (
-                        <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200">
+                        <div
+                          key={idx}
+                          className="p-3 bg-gray-50 rounded border border-gray-200"
+                        >
                           <p className="text-sm text-gray-700">{snippet}</p>
                         </div>
                       ))
@@ -152,7 +164,9 @@ export default function Dashboard() {
 
           {!showResults && (
             <div className="bg-white rounded-lg shadow p-12 text-center">
-              <p className="text-gray-500">Upload documents and ask a question to see results</p>
+              <p className="text-gray-500">
+                Upload documents and ask a question to see results
+              </p>
             </div>
           )}
         </div>

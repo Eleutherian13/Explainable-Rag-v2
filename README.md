@@ -1,16 +1,16 @@
-# Explainable RAG with Knowledge Graphs Web Application
+# Dataforge - Explainable RAG Application
 
-A modern, lean web application implementing Retrieval-Augmented Generation (RAG) with knowledge graph-based explanations. This system allows users to upload documents, ask questions, and receive grounded answers with visual knowledge graphs and entity relationships.
+A modern full-stack web application implementing Retrieval-Augmented Generation (RAG) with entity extraction and explainable AI. Users can upload documents, ask questions, and receive grounded answers with complete source traceability.
 
 ## 🌟 Features
 
 - **Document Upload**: Support for PDF, TXT, and Markdown files
-- **Smart Retrieval**: Vector-based semantic search using embeddings
-- **Entity Extraction**: Automatic entity recognition using NER
-- **Knowledge Graphs**: Visual representation of entity relationships
-- **AI-Powered Answers**: LLM integration for generating grounded responses
+- **Smart Retrieval**: Vector-based semantic search using FAISS and sentence embeddings
+- **Entity Extraction**: Automatic named entity recognition
+- **AI-Powered Answers**: LLM integration (Groq API) for generating grounded responses
 - **Explainability**: Complete traceability of answers to source documents
-- **Modern UI**: Responsive React-based interface with interactive graph visualization
+- **Pipeline Transparency**: Full visibility into the 9-stage RAG pipeline
+- **Modern UI**: Responsive React-based interface with Tailwind CSS
 
 ## 🏗️ Architecture
 
@@ -19,12 +19,16 @@ Frontend (React + Vite)
     ↓
 API Layer (FastAPI)
     ↓
-Backend Pipeline:
-  - Document Preprocessing (chunking, embedding)
-  - Retrieval (FAISS vector search)
-  - Entity Extraction (spaCy NER)
-  - Graph Construction (NetworkX)
-  - Answer Generation (OpenAI/HF LLM)
+RAG Pipeline:
+  1. Document Upload & Validation
+  2. Text Chunking
+  3. Embedding Generation (sentence-transformers)
+  4. Vector Indexing (FAISS)
+  5. Semantic Retrieval
+  6. Entity Extraction
+  7. Context Assembly
+  8. RAG Answer Generation (Groq LLM)
+  9. Response Polishing & Citation
 ```
 
 ## 🛠️ Technology Stack
@@ -35,21 +39,17 @@ Backend Pipeline:
 - **Key Libraries**:
   - SentenceTransformers (embeddings)
   - FAISS (vector search)
-  - spaCy (NER)
-  - NetworkX (knowledge graphs)
-  - OpenAI SDK (LLM)
+  - Groq SDK (LLM)
   - PyMuPDF (PDF parsing)
 
 ### Frontend
 - **Framework**: React 18+
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS
-- **Graph Viz**: Cytoscape.js
 - **State**: Zustand
 
 ### DevOps
 - **Containerization**: Docker & Docker Compose
-- **Python Env**: Poetry/Pipenv
 
 ## 🚀 Quick Start
 
@@ -57,7 +57,7 @@ Backend Pipeline:
 - Docker & Docker Compose (recommended)
 - Python 3.12+ (for local development)
 - Node.js 20+ (for frontend development)
-- OpenAI API key (optional, for LLM integration)
+- Groq API key (for LLM integration)
 
 ### Option 1: Docker Compose (Recommended)
 
@@ -68,8 +68,8 @@ cd Dataforge
 # Copy environment template
 cp .env.example .env
 
-# Add your OpenAI API key
-# OPENAI_API_KEY=sk-your-key-here
+# Add your Groq API key in .env
+# GROQ_API_KEY=your-key-here
 
 # Start both services
 docker-compose up
@@ -92,9 +92,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Download spaCy model
-python -m spacy download en_core_web_sm
 
 # Run backend
 uvicorn app.main:app --reload --port 8000

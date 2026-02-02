@@ -98,3 +98,31 @@ class StatusResponse(BaseModel):
     status: str
     message: str
     version: str = "1.0.0"
+
+class DocumentProcessingStatus(BaseModel):
+    """Status of a document in the pipeline."""
+    filename: str
+    status: str  # 'uploaded', 'chunking', 'embedding', 'indexed'
+    progress: int  # 0-100
+    chunks_count: int = 0
+    error: Optional[str] = None
+
+
+class SessionProcessingStatus(BaseModel):
+    """Overall session processing status."""
+    session_id: str
+    overall_status: str  # 'idle', 'processing', 'completed', 'error'
+    documents: List[DocumentProcessingStatus]
+    total_chunks: int = 0
+    total_entities: int = 0
+    total_graph_edges: int = 0
+    current_stage: str = ""
+    error_message: Optional[str] = None
+
+
+class ExportData(BaseModel):
+    """Data export container."""
+    data_type: str  # 'chunks', 'entities', 'graph', 'trace'
+    content: Dict[str, Any]
+    filename: str
+    format: str  # 'json', 'csv', 'pdf'

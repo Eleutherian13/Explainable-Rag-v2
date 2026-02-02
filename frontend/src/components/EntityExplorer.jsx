@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { Search, ExternalLink, Copy, Download, Lightbulb } from "lucide-react";
+import { Search, ExternalLink, Copy, Download, Lightbulb, RotateCw, Focus, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { useAppStore } from "../store/appStore";
+import { queryWithEntityFocus, queryWithExcludedEntity } from "../services/api";
 import api from "../services/api";
 
 export default function EntityExplorer({ entities, sessionId }) {
@@ -8,6 +10,14 @@ export default function EntityExplorer({ entities, sessionId }) {
   const [entityContext, setEntityContext] = useState(null);
   const [loading, setLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(null);
+  const [regeneratingMode, setRegeneratingMode] = useState(null);  // PHASE 4: 'focus', 'exclude', or null
+  const [regeneratingLoading, setRegeneratingLoading] = useState(false);  // PHASE 4
+  const [regenerationFeedback, setRegenerationFeedback] = useState("");  // PHASE 4
+  
+  const indexId = useAppStore((state) => state.indexId);
+  const setResults = useAppStore((state) => state.setResults);
+  const setError = useAppStore((state) => state.setError);
+  const storeSetLoading = useAppStore((state) => state.setLoading);
 
   const filteredEntities = entities.filter(
     (e) =>
@@ -18,6 +28,7 @@ export default function EntityExplorer({ entities, sessionId }) {
   const handleEntityClick = async (entity) => {
     setSelectedEntity(entity);
     setLoading(true);
+    setRegenerationFeedback("");
 
     try {
       const response = await api.post(`/entity-context/${sessionId}`, {}, {
@@ -26,6 +37,7 @@ export default function EntityExplorer({ entities, sessionId }) {
       setEntityContext(response.data);
     } catch (err) {
       console.error("Error fetching entity context:", err);
+      setError("Could not fetch entity context");
     } finally {
       setLoading(false);
     }
@@ -35,6 +47,54 @@ export default function EntityExplorer({ entities, sessionId }) {
     navigator.clipboard.writeText(text);
     setCopyFeedback("Copied!");
     setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
+  // PHASE 4: Regenerate answer with entity focus
+  const handleEntityFocus = async () => {
+    if (!selectedEntity || !indexId) return;
+    
+    setRegeneratingLoading(true);
+    setRegenerationFeedback("Regenerating answer with focus on this entity...");
+    setRegeneratingMode("focus");
+
+    try {
+      // Get current query from somewhere - for now use entity name as query
+      const query = `Tell me more about ${selectedEntity.name}`;
+      const result = await queryWithEntityFocus(query, indexId, selectedEntity.name);
+      setResults(result);
+      setRegenerationFeedback("✓ Answer regenerated with entity focus");
+      setTimeout(() => setRegenerationFeedback(""), 3000);
+    } catch (err) {
+      setError("Failed to regenerate answer: " + err.message);
+      setRegenerationFeedback("✗ Failed to regenerate");
+    } finally {
+      setRegeneratingLoading(false);
+      setRegeneratingMode(null);
+    }
+  };
+
+  // PHASE 4: Regenerate answer excluding entity (what-if mode)
+  const handleEntityExclude = async () => {
+    if (!selectedEntity || !indexId) return;
+    
+    setRegeneratingLoading(true);
+    setRegenerationFeedback("Regenerating answer WITHOUT this entity (what-if mode)...");
+    setRegeneratingMode("exclude");
+
+    try {
+      // Get current query - for now use a generic query
+      const query = "What else is important?";
+      const result = await queryWithExcludedEntity(query, indexId, selectedEntity.name);
+      setResults(result);
+      setRegenerationFeedback("✓ Answer regenerated excluding entity. Compare to see the difference!");
+      setTimeout(() => setRegenerationFeedback(""), 5000);
+    } catch (err) {
+      setError("Failed to regenerate answer: " + err.message);
+      setRegenerationFeedback("✗ Failed to regenerate");
+    } finally {
+      setRegeneratingLoading(false);
+      setRegeneratingMode(null);
+    }
   };
 
   const getEntityColor = (type) => {
@@ -127,13 +187,42 @@ export default function EntityExplorer({ entities, sessionId }) {
                 </div>
               </div>
 
-              {/* Actions */}
+              {/* PHASE 4: Regeneration Feedback */}
+              {regenerationFeedback && (
+                <div className={`p-3 rounded-lg border ${
+                  regenerationFeedback.includes("✓") 
+                    ? "bg-green-50 border-green-300 text-green-800"
+                    : "bg-yellow-50 border-yellow-300 text-yellow-800"
+                }`}>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {regenerationFeedback}
+                  </p>
+                </div>
+              )}
+
+              {/* PHASE 4: Interactive Actions */}
               <div className="border-t pt-4 space-y-2">
-                <div className="font-semibold text-gray-900 mb-3">💡 What you can do:</div>
-                <button className="w-full bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-                  <ExternalLink className="w-4 h-4" />
-                  Search in Wikipedia
+                <div className="font-semibold text-gray-900 mb-3">💡 Analyze this Entity:</div>
+                
+                <button
+                  onClick={handleEntityFocus}
+                  disabled={regeneratingLoading}
+                  className="w-full bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Focus className="w-4 h-4" />
+                  {regeneratingMode === "focus" && regeneratingLoading ? "Regenerating..." : "Focus Answer on This Entity"}
                 </button>
+
+                <button
+                  onClick={handleEntityExclude}
+                  disabled={regeneratingLoading}
+                  className="w-full bg-orange-50 hover:bg-orange-100 border border-orange-300 text-orange-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <EyeOff className="w-4 h-4" />
+                  {regeneratingMode === "exclude" && regeneratingLoading ? "Regenerating..." : "Exclude This Entity (What-If)"}
+                </button>
+
                 <button
                   onClick={() => handleCopy(selectedEntity.name)}
                   className="w-full bg-green-50 hover:bg-green-100 border border-green-300 text-green-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
@@ -141,10 +230,23 @@ export default function EntityExplorer({ entities, sessionId }) {
                   <Copy className="w-4 h-4" />
                   {copyFeedback || "Copy Name"}
                 </button>
-                <button className="w-full bg-purple-50 hover:bg-purple-100 border border-purple-300 text-purple-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-                  <Download className="w-4 h-4" />
-                  Export as CSV
+
+                <button
+                  onClick={() => window.open(`https://www.google.com/search?q=${encodeURIComponent(selectedEntity.name)}`, "_blank")}
+                  className="w-full bg-purple-50 hover:bg-purple-100 border border-purple-300 text-purple-900 py-2 px-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Search Online
                 </button>
+              </div>
+
+              {/* PHASE 4: Info Box */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-900">
+                  <span className="font-semibold">💡 What this means:</span><br/>
+                  • <strong>Focus</strong>: Regenerate answer prioritizing this entity<br/>
+                  • <strong>Exclude</strong>: Show what the answer looks like WITHOUT this entity (proves grounding)
+                </p>
               </div>
 
               {/* Related Content */}
