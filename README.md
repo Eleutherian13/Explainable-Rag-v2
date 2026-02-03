@@ -34,6 +34,7 @@ RAG Pipeline:
 ## 🛠️ Technology Stack
 
 ### Backend
+
 - **Framework**: FastAPI 0.110+
 - **Language**: Python 3.12+
 - **Key Libraries**:
@@ -43,17 +44,20 @@ RAG Pipeline:
   - PyMuPDF (PDF parsing)
 
 ### Frontend
+
 - **Framework**: React 18+
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS
 - **State**: Zustand
 
 ### DevOps
+
 - **Containerization**: Docker & Docker Compose
 
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Docker & Docker Compose (recommended)
 - Python 3.12+ (for local development)
 - Node.js 20+ (for frontend development)
@@ -83,6 +87,7 @@ docker-compose up
 ### Option 2: Local Development
 
 #### Backend Setup
+
 ```bash
 cd backend
 
@@ -98,6 +103,7 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 #### Frontend Setup
+
 ```bash
 cd frontend
 
@@ -115,14 +121,17 @@ npm run dev
 ### Endpoints
 
 #### 1. POST /upload
+
 Upload and index documents.
 
 **Request:**
+
 ```bash
 curl -X POST -F "files=@document.pdf" http://localhost:8000/upload
 ```
 
 **Response:**
+
 ```json
 {
   "status": "success",
@@ -133,9 +142,11 @@ curl -X POST -F "files=@document.pdf" http://localhost:8000/upload
 ```
 
 #### 2. POST /query
+
 Submit a query and get answers with explanations.
 
 **Request:**
+
 ```bash
 curl -X POST -H "Content-Type: application/json" \
   -d '{"query": "Who developed GPT-4?", "index_id": "550e8400..."}' \
@@ -143,6 +154,7 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 **Response:**
+
 ```json
 {
   "answer": "GPT-4 was developed by OpenAI.",
@@ -163,6 +175,7 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 #### 3. GET /status
+
 Health check.
 
 ```bash
@@ -170,6 +183,7 @@ curl http://localhost:8000/status
 ```
 
 #### 4. POST /clear
+
 Clear a session.
 
 ```bash
@@ -218,6 +232,7 @@ Dataforge/
 ### Environment Variables
 
 Create `.env` file:
+
 ```env
 OPENAI_API_KEY=sk-your-api-key
 ```
@@ -225,6 +240,7 @@ OPENAI_API_KEY=sk-your-api-key
 ### Backend Settings
 
 In `backend/app/main.py`:
+
 - Embedding model: `all-MiniLM-L6-v2`
 - Retrieval top-k: 5 (configurable per query)
 - Chunk size: 300 words
@@ -246,6 +262,7 @@ In `backend/app/main.py`:
 ### Example 2: Verify Sources
 
 Click on entities in the knowledge graph to see:
+
 - Source chunks where entity was found
 - Related entities
 - Relationships and how they were inferred
@@ -285,12 +302,14 @@ For production:
 ## 🧪 Testing
 
 ### Backend Tests
+
 ```bash
 cd backend
 pytest
 ```
 
 ### Frontend Tests
+
 ```bash
 cd frontend
 npm test
@@ -299,6 +318,7 @@ npm test
 ## 📝 Logging
 
 Backend logs available via:
+
 - Console output
 - API endpoint (implement `/logs` if needed)
 
@@ -316,16 +336,19 @@ MIT License - See LICENSE file
 ## 🆘 Troubleshooting
 
 ### Backend won't start
+
 - Check Python version: `python --version` (need 3.12+)
 - Verify spaCy model: `python -m spacy download en_core_web_sm`
 - Check port 8000 is available
 
 ### Frontend won't connect to API
+
 - Ensure backend is running: `http://localhost:8000/status`
 - Check CORS settings in `backend/app/main.py`
 - Verify API URL in frontend: `frontend/src/services/api.js`
 
 ### High memory usage
+
 - Reduce chunk size in `backend/app/modules/preprocessing.py`
 - Clear old sessions via `/clear` endpoint
 - Limit uploaded file size
@@ -333,6 +356,7 @@ MIT License - See LICENSE file
 ## 📞 Support
 
 For issues, feature requests, or questions:
+
 1. Check documentation
 2. Review API docs at `http://localhost:8000/docs`
 3. Inspect browser console for frontend errors

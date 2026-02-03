@@ -59,7 +59,7 @@ npm run dev
 
 1. **Upload Documents**: Click "Upload Documents" and select PDF, TXT, or MD files
 2. **Ask Questions**: Enter a question about your documents
-3. **View Results**: 
+3. **View Results**:
    - **Answer**: AI-generated response grounded in your documents
    - **Sources**: Original document chunks used to generate the answer
    - **Entities**: Named entities extracted from the documents

@@ -33,8 +33,10 @@ export default function EnhancedPipelineView({
   // Determine if we have completed processing (have query results)
   const hasResults = queryData?.answer && queryData?.snippets?.length > 0;
   const hasDocuments = processingStatus?.documents?.length > 0 || hasResults;
-  const hasChunks = processingStatus?.total_chunks > 0 || (queryData?.snippets?.length > 0);
-  const hasEntities = processingStatus?.total_entities > 0 || (queryData?.entities?.length > 0);
+  const hasChunks =
+    processingStatus?.total_chunks > 0 || queryData?.snippets?.length > 0;
+  const hasEntities =
+    processingStatus?.total_entities > 0 || queryData?.entities?.length > 0;
 
   // Pipeline stages definition - all stages complete when we have results
   const pipelineStages = useMemo(() => {
@@ -47,7 +49,8 @@ export default function EnhancedPipelineView({
         status: hasDocuments ? "completed" : "idle",
         details: {
           documents: processingStatus?.documents || [],
-          totalDocuments: processingStatus?.documents?.length || (hasResults ? "✓" : 0),
+          totalDocuments:
+            processingStatus?.documents?.length || (hasResults ? "✓" : 0),
         },
       },
       {
@@ -57,7 +60,8 @@ export default function EnhancedPipelineView({
         description: "Documents split into semantic chunks for processing",
         status: hasChunks ? "completed" : "idle",
         details: {
-          totalChunks: processingStatus?.total_chunks || queryData?.snippets?.length || 0,
+          totalChunks:
+            processingStatus?.total_chunks || queryData?.snippets?.length || 0,
           avgChunkSize: "~300 words",
           overlap: "50 words",
         },
@@ -66,12 +70,14 @@ export default function EnhancedPipelineView({
         id: "embedding",
         name: "Embedding Generation",
         icon: Cpu,
-        description: "Text chunks converted to semantic vectors using sentence transformers",
+        description:
+          "Text chunks converted to semantic vectors using sentence transformers",
         status: hasChunks ? "completed" : "idle",
         details: {
           model: "all-MiniLM-L6-v2",
           dimensions: 384,
-          chunksEmbedded: processingStatus?.total_chunks || queryData?.snippets?.length || 0,
+          chunksEmbedded:
+            processingStatus?.total_chunks || queryData?.snippets?.length || 0,
         },
       },
       {
@@ -82,7 +88,8 @@ export default function EnhancedPipelineView({
         status: hasChunks ? "completed" : "idle",
         details: {
           indexType: "FAISS IndexFlatL2",
-          indexedVectors: processingStatus?.total_chunks || queryData?.snippets?.length || 0,
+          indexedVectors:
+            processingStatus?.total_chunks || queryData?.snippets?.length || 0,
           searchComplexity: "O(n) - Exact search",
         },
       },
@@ -90,7 +97,8 @@ export default function EnhancedPipelineView({
         id: "retrieval",
         name: "Semantic Retrieval",
         icon: Database,
-        description: "Top-K most relevant chunks retrieved based on query similarity",
+        description:
+          "Top-K most relevant chunks retrieved based on query similarity",
         status: queryData?.snippets?.length > 0 ? "completed" : "idle",
         details: {
           query: queryData?.query || "",
@@ -107,7 +115,10 @@ export default function EnhancedPipelineView({
         status: hasEntities ? "completed" : "idle",
         details: {
           method: "Regex + Pattern Matching",
-          entitiesFound: queryData?.entities?.length || processingStatus?.total_entities || 0,
+          entitiesFound:
+            queryData?.entities?.length ||
+            processingStatus?.total_entities ||
+            0,
           types: "PERSON, ORG, DATE, LOCATION, etc.",
         },
       },
@@ -153,7 +164,14 @@ export default function EnhancedPipelineView({
     ];
 
     return stages;
-  }, [processingStatus, queryData, hasDocuments, hasChunks, hasEntities, hasResults]);
+  }, [
+    processingStatus,
+    queryData,
+    hasDocuments,
+    hasChunks,
+    hasEntities,
+    hasResults,
+  ]);
 
   // Calculate overall progress
   const completedStages = pipelineStages.filter(

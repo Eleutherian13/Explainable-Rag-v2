@@ -72,7 +72,9 @@ export default function Dashboard() {
     // Add entity context to query and re-submit
     const enhancedQuery = `${query} (focusing on ${entity.name})`;
     // For now, show an alert - in full implementation, this would trigger a new query
-    alert(`Would regenerate query focusing on: ${entity.name}\nNew query: "${enhancedQuery}"`);
+    alert(
+      `Would regenerate query focusing on: ${entity.name}\nNew query: "${enhancedQuery}"`,
+    );
   };
 
   // Handler for "What If?" - excluding an entity
